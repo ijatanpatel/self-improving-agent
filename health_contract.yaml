@@ -1,0 +1,49 @@
+# Health contract for Orbi, the Orbitask support bot.
+#
+# Plain-language rules for what "healthy" means. loop/contract.py tests every recent
+# request against them (no LLM involved), and the investigation agent is asked to explain
+# any rule that fails. Conditions are single comparisons: <field> <op> <value>.
+# Fields are root-span attributes (answer.confidence, app.channel, ...), eval scores
+# written by the online evaluator (eval.faithfulness, ...) and timings (duration_ms).
+# A rule fails when more requests break it than its error budget (max_violation_rate) allows.
+
+app: orbi-support-bot
+phoenix_project: support-bot
+root_span: support_request
+min_requests: 20
+
+required_spans:
+  - span: input_guardrail
+    description: Every customer message must pass the input guardrail (card-number redaction and prompt-injection check) before any of it reaches the LLM.
+    severity: critical
+  - span: retrieve
+    when: answer.blocked == false
+    description: Every request that gets an answer must search the help center first.
+  - span: generate_answer
+    when: answer.blocked == false
+    description: Every request that gets an answer must go through the answer generator.
+
+invariants:
+  - id: high_confidence_needs_good_retrieval
+    description: When the bot says it is highly confident, the help-center chunks it retrieved must actually contain the answer.
+    when: answer.confidence == 'high'
+    require: eval.context_sufficiency >= 0.5
+    severity: high
+    max_violation_rate: 0.05   # error budget: LLM judges are sometimes wrong
+  - id: answers_are_grounded
+    description: Answers must only state facts that the retrieved help-center chunks support.
+    when: answer.answered == true
+    require: eval.faithfulness >= 0.7
+    severity: high
+    max_violation_rate: 0.10
+  - id: answers_cite_sources
+    description: Every answer must cite at least one help-center chunk.
+    when: answer.answered == true
+    require: answer.citation_count >= 1
+    severity: medium
+
+latency_slo:
+  span: support_request
+  percentile: 95
+  max_ms: 5000
+  severity: medium
