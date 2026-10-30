@@ -1,0 +1,15 @@
+# Secrets: never commit these
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local runtime data (traces, issue DB, agent transcripts, embedding cache)
+.phoenix/
+data/
+.investigation/
+support_bot/.index/
+.worktrees/
