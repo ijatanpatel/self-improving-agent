@@ -131,15 +131,27 @@ async def evaluate_once(project: str, hours: float, limit: int, concurrency: int
         print("Nothing new to score.")
         return
 
-    print(f"Scoring {len(pending)} requests with {list(factories)} (judge: {JUDGE_MODEL})...")
+    print(f"Scoring {len(pending)} requests with {list(factories)} (judge: {JUDGE_MODEL})...",
+          flush=True)
     semaphore = asyncio.Semaphore(concurrency)
-    results = await asyncio.gather(
-        *(score_request(r, factories, semaphore, rescore) for r in pending))
-    annotations = [a for batch, _ in results for a in batch]
-    if annotations:
-        client().spans.log_span_annotations(span_annotations=annotations, sync=True)
+    annotations, cost, done = [], 0.0, 0
 
-    print(f"Wrote {len(annotations)} annotations; judge cost about ${sum(c for _, c in results):.3f}")
+    async def score_and_save(request: RequestTrace) -> None:
+        # Save each request's scores as soon as they exist: progress is visible in Phoenix
+        # right away, and a crash halfway loses nothing.
+        nonlocal cost, done
+        batch, batch_cost = await score_request(request, factories, semaphore, rescore)
+        if batch:
+            await asyncio.to_thread(client().spans.log_span_annotations,
+                                    span_annotations=batch, sync=True)
+        annotations.extend(batch)
+        cost += batch_cost
+        done += 1
+        if done % 10 == 0 or done == len(pending):
+            print(f"  scored {done}/{len(pending)}", flush=True)
+
+    await asyncio.gather(*(score_and_save(r) for r in pending))
+    print(f"Wrote {len(annotations)} annotations; judge cost about ${cost:.3f}")
     for name in factories:
         scores = [a["result"]["score"] for a in annotations if a["name"] == name]
         passed = sum(a["result"]["label"] == "pass" for a in annotations if a["name"] == name)

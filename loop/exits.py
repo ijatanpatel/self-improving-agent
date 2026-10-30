@@ -62,10 +62,10 @@ def add_to_dataset(store: IssueStore, issue: dict, hours: float = 24) -> str:
         raise RuntimeError("No violating requests found in the window; nothing to save.")
     name = f"issue-{issue['id']}-{slug(issue['rule_id'].split(':')[-1], 30)}"
     client().datasets.create_dataset(
-        name=name, examples=examples[:40],
+        name=name, examples=examples[:25],
         dataset_description=f"Requests that broke {', '.join(rules)} (issue #{issue['id']}).",
     )
-    store.record_exit(issue["id"], "dataset", name, {"examples": len(examples[:40])})
+    store.record_exit(issue["id"], "dataset", name, {"examples": len(examples[:25])})
     return name
 
 
